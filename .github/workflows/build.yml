@@ -1,0 +1,48 @@
+name: OS Build & Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y nasm qemu-system-x86 mtools python3-matplotlib fonts-noto-cjk
+
+    - name: Build bootloader
+      run: |
+        mkdir -p build/bootloader
+        nasm -f bin bootloader/hello_world.asm -o build/bootloader/bootloader.bin
+        dd if=/dev/zero of=build/bootloader/bootloader.img bs=512 count=2880
+        dd if=build/bootloader/bootloader.bin of=build/bootloader/bootloader.img conv=notrunc
+
+    - name: Test with QEMU (headless)
+      run: |
+        timeout 10s qemu-system-x86_64 -nographic -drive format=raw,file=build/bootloader/bootloader.img || true
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: os-binaries
+        path: |
+          build/bootloader/bootloader.bin
+          build/bootloader/bootloader.img
+
+    - name: Update progress graph
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        python3 generate_bar_chart.py
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git add progress_bar_chart.png
+        git commit -m "Update progress graph" || echo "No changes to commit"
+        git push
